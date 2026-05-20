@@ -195,8 +195,14 @@ class LED_MANAGER():
         self._start_masked_blink('red', RED_WARNING_BLINK_MS, 0, count=1, mask_colors=['blue', 'green'])
 
     def red_solid(self):
+        self._cancel('blue')
+        self._cancel('green')
         self._cancel('red')
+        self.base_state['blue'] = 1
+        self.base_state['green'] = 1
         self.base_state['red'] = 0
+        self._set_pin('blue', 1)
+        self._set_pin('green', 1)
         self._set_pin('red', 0)
 
     def green_solid(self):
@@ -833,6 +839,8 @@ def red_solid_shutdown():
 
 
 def handle_button_input(now_ms, button_state, pressed):
+    button_state['pressed'] = pressed == 0
+
     if pressed == 0:
         if button_state['press_started_at'] is None:
             button_state['press_started_at'] = now_ms
@@ -872,6 +880,12 @@ def process_button_events(now_ms, button_state):
         event_state = BUTTON_IRQ_STATES[idx]
         BUTTON_IRQ_TAIL = (BUTTON_IRQ_TAIL + 1) % BUTTON_IRQ_QUEUE_SIZE
         handle_button_input(event_time, button_state, event_state)
+
+    if button_state['pressed'] and not button_state['shutdown_armed'] and button_state['press_started_at'] is not None:
+        if ticks_diff(now_ms, button_state['press_started_at']) >= BUTTON_HOLD_MS:
+            button_state['shutdown_armed'] = True
+            red_solid_shutdown()
+            debug_print("Shutdown armed; release button to power off")
 
     if button_state['click_count'] == 1 and ticks_diff(now_ms, button_state['click_deadline_at']) >= 0:
         show_verbose_mode_status()
@@ -914,6 +928,7 @@ def main():
     BUTTON.irq(trigger=Pin.IRQ_FALLING | Pin.IRQ_RISING, handler=button_irq)
     btCounter = 0
     button_state = {
+        'pressed': False,
         'press_started_at': None,
         'shutdown_armed': False,
         'click_count': 0,
